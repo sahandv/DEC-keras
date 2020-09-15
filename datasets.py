@@ -308,8 +308,74 @@ def load_stl(data_path='./data/stl'):
 
     return features, y
 
+def load_custom(data_path='data/custom',minmax_scale_custom_data=False,task=None):
+    """
+    
 
-def load_data(dataset_name):
+    Parameters
+    ----------
+    data_path : str, optional
+        The default input directory to search x.csv and y.csv for'.
+        x.csv and y.csv should come with headers and the headers will be ignored
+        in the Numpy resulsts. If they come without header, a row will be mssing.
+    minmax_scale_custom_data: bool, optional
+        Will scale the data between 0 and 1.
+    task: str, optional
+        The default input is None. Otherwise it should be provided
+        a relative path after the data_path. It should contain the path to a
+        headered csv file, containing a filter for x and y indices.
+        
+    Returns
+    -------
+    x : np.array
+        2D Numpy freature array.
+    y : np.array, None
+        If y.csv is set will return a 1D Numpy array.
+
+    """
+    import os
+    import pandas as pd
+    from sklearn.preprocessing import MinMaxScaler
+
+    x_path = data_path + '/x.csv'
+    y_path = data_path + '/y.csv'
+    assert os.path.exists(x_path), \
+        "No data! provide your custom data in x.csv and y.csv (if applicable), then come back, or use predefined data options." % data_path
+    
+    x = pd.read_csv(x_path)
+    
+    print('\nX shape is',x.shape,'. Moving to the next step.\n')
+    
+    is_NaN = x.isnull()
+    row_has_NaN = is_NaN. any(axis=1)
+    rows_with_NaN = x[row_has_NaN]
+    if rows_with_NaN.shape[0]>0:
+        input("\n\nThere is al least one NaN value in x! Please reconsider the data and remove NaNs, or press return to continue anyway. I will fill them with 0...\n")
+        x = x.fillna(0,inplace=True)
+    
+    if task!=None:
+        filter_path = data_path + '/' + task
+        filter_list = pd.read_csv(filter_path)
+        x = x.iloc[filter_list[filter_list.columns[0]].values]
+        
+    x = x.to_numpy()
+    if minmax_scale_custom_data:
+        x = MinMaxScaler().fit_transform(x)
+
+    if os.path.exists(y_path):
+        y = pd.read_csv(y_path)[pd.read_csv(y_path).columns[0]]
+        if task!=None:
+            y = y.iloc[filter_list[filter_list.columns[0]].values]
+        y = y.values
+    else:
+        print('Skipping y.csv, it is not given. Will pass None to DEC to use x as y again.\n')
+        y = None
+    
+    return x,y
+
+    
+
+def load_data(dataset_name,minmax_scale_custom_data=False,task=None):
     if dataset_name == 'mnist':
         return load_mnist()
     elif dataset_name == 'fmnist':
@@ -323,5 +389,5 @@ def load_data(dataset_name):
     elif dataset_name == 'stl':
         return load_stl()
     else:
-        print('Not defined for loading', dataset_name)
-        exit(0)
+        print('\nUsing custom dataset from',dataset_name,'\n')
+        return load_custom(dataset_name,minmax_scale_custom_data,task)

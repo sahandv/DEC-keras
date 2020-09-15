@@ -8,7 +8,7 @@ ari = adjusted_rand_score
 def acc(y_true, y_pred):
     """
     Calculate clustering accuracy. Require scikit-learn installed
-
+    Note: The linear_assignment function is deprecated in 0.21 and will be removed from 0.23. Use scipy.optimize.linear_sum_assignment instead.
     # Arguments
         y: true labels, numpy.array with shape `(n_samples,)`
         y_pred: predicted labels, numpy.array with shape `(n_samples,)`

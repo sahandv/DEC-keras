@@ -14,16 +14,16 @@ from time import time
 import numpy as np
 import keras.backend as K
 from keras.engine.topology import Layer, InputSpec
-from keras.layers import Dense, Input
+from keras.layers import Dense, Input, Dropout
 from keras.models import Model
 from keras.optimizers import SGD
 from keras import callbacks
 from keras.initializers import VarianceScaling
 from sklearn.cluster import KMeans
 import metrics
+from keras.utils.vis_utils import plot_model
 
-
-def autoencoder(dims, act='relu', init='glorot_uniform'):
+def autoencoder(dims, act='relu', init='glorot_uniform', selu=False, drop=False):
     """
     Fully connected auto-encoder model, symmetric.
     Arguments:
@@ -38,21 +38,33 @@ def autoencoder(dims, act='relu', init='glorot_uniform'):
     x = Input(shape=(dims[0],), name='input')
     h = x
 
+    index = 0
     # internal layers in encoder
     for i in range(n_stacks-1):
+        if index>0 and selu:
+            act = 'selu'
         h = Dense(dims[i + 1], activation=act, kernel_initializer=init, name='encoder_%d' % i)(h)
+        index+=1
+        
 
     # hidden layer
     h = Dense(dims[-1], kernel_initializer=init, name='encoder_%d' % (n_stacks - 1))(h)  # hidden layer, features are extracted from here
-
+    
     y = h
+    if drop:
+        y = Dropout(0.2)(y)
     # internal layers in decoder
+    index = 0
     for i in range(n_stacks-1, 0, -1):
+        if index>0 and selu:
+            act = 'selu'
         y = Dense(dims[i], activation=act, kernel_initializer=init, name='decoder_%d' % i)(y)
-
+        index+=1
     # output
     y = Dense(dims[0], kernel_initializer=init, name='decoder_0')(y)
-
+    model = Model(inputs=x, outputs=y, name='AE')
+    model.compile()
+    model.summary()
     return Model(inputs=x, outputs=y, name='AE'), Model(inputs=x, outputs=h, name='encoder')
 
 
@@ -139,9 +151,10 @@ class DEC(object):
         self.model = Model(inputs=self.encoder.input, outputs=clustering_layer)
 
     def pretrain(self, x, y=None, optimizer='adam', epochs=200, batch_size=256, save_dir='results/temp'):
-        print('...Pretraining...')
+        print('\n...Pretraining...\n')
         self.autoencoder.compile(optimizer=optimizer, loss='mse')
-
+        plot_model(self.autoencoder, to_file=save_dir + 'AE_model_plot.png', show_shapes=True,show_layer_names=True)
+        
         csv_logger = callbacks.CSVLogger(save_dir + '/pretrain_log.csv')
         cb = [csv_logger]
         if y is not None:
@@ -169,9 +182,9 @@ class DEC(object):
         # begin pretraining
         t0 = time()
         self.autoencoder.fit(x, x, batch_size=batch_size, epochs=epochs, callbacks=cb)
-        print('Pretraining time: %ds' % round(time() - t0))
+        print('\nPretraining time: %ds' % round(time() - t0))
         self.autoencoder.save_weights(save_dir + '/ae_weights.h5')
-        print('Pretrained weights are saved to %s/ae_weights.h5' % save_dir)
+        print('\nPretrained weights are saved to %s/ae_weights.h5' % save_dir)
         self.pretrained = True
 
     def load_weights(self, weights):  # load weights of DEC model
@@ -270,26 +283,32 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='train',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--dataset', default='mnist',
-                        choices=['mnist', 'fmnist', 'usps', 'reuters10k', 'stl'])
+    parser.add_argument('--dataset', default='data/doc2vec',
+                        choices=['mnist', 'fmnist', 'usps', 'reuters10k', 'stl', 'data/fasttext','data/doc2vec'])
     parser.add_argument('--batch_size', default=256, type=int)
     parser.add_argument('--maxiter', default=2e4, type=int)
     parser.add_argument('--pretrain_epochs', default=None, type=int)
     parser.add_argument('--update_interval', default=None, type=int)
     parser.add_argument('--tol', default=0.001, type=float)
     parser.add_argument('--ae_weights', default=None)
-    parser.add_argument('--save_dir', default='results')
+    parser.add_argument('--save_dir', default='results/task2_doc2vec_net2/50D/500-500-2000-10/new')
+    parser.add_argument('--minmax_scale_custom_data',default=False)  
+    parser.add_argument('--task',default=None)  
+    
     args = parser.parse_args()
     print(args)
     import os
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-
+    
+    
+    task = 'task_2.csv'#args.task
+    print('\nLoading data from',args.dataset)
     # load dataset
     from datasets import load_data
-    x, y = load_data(args.dataset)
+    x, y = load_data(args.dataset,args.minmax_scale_custom_data,task)
     n_clusters = len(np.unique(y))
-
+    
     init = 'glorot_uniform'
     pretrain_optimizer = 'adam'
     # setting parameters
@@ -299,19 +318,19 @@ if __name__ == "__main__":
         init = VarianceScaling(scale=1. / 3., mode='fan_in',
                                distribution='uniform')  # [-limit, limit], limit=sqrt(1./fan_in)
         pretrain_optimizer = SGD(lr=1, momentum=0.9)
-    elif args.dataset == 'reuters10k':
-        update_interval = 30
-        pretrain_epochs = 50
-        init = VarianceScaling(scale=1. / 3., mode='fan_in',
-                               distribution='uniform')  # [-limit, limit], limit=sqrt(1./fan_in)
-        pretrain_optimizer = SGD(lr=1, momentum=0.9)
     elif args.dataset == 'usps':
         update_interval = 30
         pretrain_epochs = 50
     elif args.dataset == 'stl':
         update_interval = 30
         pretrain_epochs = 10
-
+    else:
+        update_interval = 30
+        pretrain_epochs = 150
+        init = VarianceScaling(scale=1. / 3., mode='fan_in',
+                               distribution='uniform')  # [-limit, limit], limit=sqrt(1./fan_in)
+        pretrain_optimizer = 'adam'
+        
     if args.update_interval is not None:
         update_interval = args.update_interval
     if args.pretrain_epochs is not None:
@@ -319,14 +338,14 @@ if __name__ == "__main__":
 
     # prepare the DEC model
     dec = DEC(dims=[x.shape[-1], 500, 500, 2000, 10], n_clusters=n_clusters, init=init)
-
+    
     if args.ae_weights is None:
         dec.pretrain(x=x, y=y, optimizer=pretrain_optimizer,
                      epochs=pretrain_epochs, batch_size=args.batch_size,
                      save_dir=args.save_dir)
     else:
         dec.autoencoder.load_weights(args.ae_weights)
-
+    
     dec.model.summary()
     t0 = time()
     dec.compile(optimizer=SGD(0.01, 0.9), loss='kld')
